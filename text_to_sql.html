@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Text → SQL</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="4" width="16" height="11" rx="2" stroke="#0a0b0f" stroke-width="1.5"/>
+        <path d="M5 8h8M5 11h5" stroke="#0a0b0f" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M9 1l3 3H6l3-3z" fill="#0a0b0f"/>
+      </svg>
+    </div>
+    Text<span class="dim">→</span>SQL
+  </div>
+  <span class="badge">v1.0</span>
+</header>
+
+<!-- MAIN -->
+<main>
+
+  <div class="hero">
+    <h1>Doğal dilden<br><span class="hl">SQL sorgusuna</span></h1>
+    <p>// Türkçe veya İngilizce yazın, anında SQL üretin</p>
+  </div>
+
+  <!-- INPUT CARD -->
+  <div class="card">
+    <div class="card-header">
+      <span class="dot dot-r"></span>
+      <span class="dot dot-y"></span>
+      <span class="dot dot-g"></span>
+      <span class="card-title">yeni_sorgu.sql</span>
+    </div>
+
+    <div class="input-section">
+      <div class="input-label">// Sorunuzu yazın</div>
+      <div class="textarea-wrap">
+        <textarea id="nlInput" placeholder="Örn: Son 30 günde en çok sipariş veren 5 müşteriyi getir..." maxlength="500"></textarea>
+        <span class="char-count" id="charCount">0/500</span>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-generate" id="generateBtn" onclick="generateSQL()">
+        <span class="spinner"></span>
+        <span class="btn-text">⚡ SQL Üret</span>
+      </button>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+  </div>
+
+  <!-- OUTPUT CARD -->
+  <div class="output-card" id="outputCard">
+    <div class="output-header">
+      <div class="output-title">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="6" r="5"/></svg>
+        output.sql
+      </div>
+      <button class="copy-btn" id="copyBtn" onclick="copySql()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Kopyala
+      </button>
+    </div>
+    <pre id="sqlOutput"></pre>
+    <div class="explain-section" id="explainSection" style="display:none">
+      <div class="explain-title">// Açıklama</div>
+      <div class="explain-text" id="explainText"></div>
+    </div>
+    <div class="results-section" id="resultsSection" style="display:none">
+      <div class="explain-title">// Sonuçlar</div>
+      <div class="results-content" id="resultsContent"></div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="history-card" id="historyCard" style="display:none">
+    <div class="history-title">// Geçmiş sorgular</div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>

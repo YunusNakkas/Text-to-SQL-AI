@@ -1,7 +1,9 @@
 import sqlite3
 import os
-from dotenv import load_dotenv
-from google import genai
+from dotenv import load_dotenv  # type: ignore
+from google import genai  # type: ignore
+from flask import Flask, request, jsonify, render_template_string  # type: ignore
+from flask_cors import CORS  # type: ignore
 
 # Load environment variables
 load_dotenv()
@@ -40,7 +42,7 @@ def ask_llm_for_sql(chat_session, user_prompt):
         print(f"LLM API Hatası: {e}")
         return None
 
-def execute_sql(db_path, query):
+def execute_sql(db_path, query) -> tuple:
     """Executes the given SQL query and returns the column headers and row results."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -53,27 +55,31 @@ def execute_sql(db_path, query):
         else:
             column_names = ["Kayıt Etkilenenler"]
             results = [[cursor.rowcount]]
-        return column_names, results
+        ret = (column_names, results)
     except Exception as e:
-        return None, f"SQL Çalıştırma Hatası: {e}"
+        ret = (None, f"SQL Çalıştırma Hatası: {e}")
     finally:
         conn.close()
+    return ret
 
-def main():
-    if not os.path.exists(DB_FILE):
-        print(f"Hata: {DB_FILE} bulunamadı.")
-        return
+app = Flask(__name__)
+CORS(app)
 
-    # Check API Key
-    if not os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") == "your_gemini_api_key_here":
-        print("Hata: Geçerli bir Gemini API anahtarı bulunamadı. Lütfen .env dosyasındaki GEMINI_API_KEY'i kendi anahtarınızla değiştirin.")
-        return
+schema = None
 
-    print("Veritabanı şeması okunuyor...")
-    schema = get_database_schema(DB_FILE)
+def get_schema():
+    global schema
+    if schema is None:
+        schema = get_database_schema(DB_FILE)
+        if schema is None:
+            schema = ""
+    return schema
 
+def create_chat_session():
     gemini_key = os.getenv("GEMINI_API_KEY")
     client = genai.Client(api_key=gemini_key)
+    
+    db_schema = get_schema()
     
     system_prompt = f"""
     Sen bir SQL uzmanısın. Görevin, kullanıcının girdiği Türkçe doğal dil sorusunu 
@@ -89,10 +95,10 @@ def main():
     7. ÖNEMLİ: Sen bir sohbet arayüzüsün. Kullanıcı "Peki onun fiyatı ne?", "O ürünü kim almış" gibi geçmişten bahseden sorular soruyorsa, ÖNCEKİ MESAJLARA BAKARAK eski bağlam üzerinden yeni bir SQL yaz. Örneğin "fiyatı 5000 altı ürün kaç tane" diye sorup sonra "peki o ürünler ne" derse yeni SQL sorgu "SELECT * FROM products WHERE price < 5000" olmalıdır.
 
     İşte Veritabanı Şeması:
-    {schema}
+    {db_schema}
     """
 
-    chat_session = client.chats.create(
+    return client.chats.create(
         model='gemini-2.5-flash',
         config=genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -100,49 +106,93 @@ def main():
         )
     )
 
-    print("\n--- Doğal Dilden SQL'e Uygulamasına Hoşgeldiniz ---")
-    print("Örnek Sorular: 'En pahalı ürün hangisi?', 'Ahmet Yılmaz ne kadarlık sipariş vermiş?'")
-    print("Çıkmak için 'q' veya 'exit' yazabilirsiniz.")
+@app.route('/api/generate', methods=['POST'])
+def generate():
+    data = request.json or {}
+    question = data.get('question', '').strip()
+    
+    if not question:
+        return jsonify({'error': 'Lütfen bir soru yazın.'}), 400
+    
+    try:
+        # Create client and chat session directly in this scope
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        client = genai.Client(api_key=gemini_key)
+        
+        db_schema = get_schema()
+        
+        system_prompt = f"""
+        Sen bir SQL uzmanısın. Görevin, kullanıcının girdiği Türkçe doğal dil sorusunu 
+        aşağıdaki veritabanı şemasına (SQLite) uygun ve kesin doğru bir arama SQL (SELECT) sorgusuna çevirmektir.
 
-    while True:
-        user_input = input("\nSoru: ")
-        if user_input.lower() in ['q', 'exit', 'çıkış']:
-            break
+        İPUÇLARI VE KURALLAR:
+        1. Metin aramalarında Türkçe karakter ve büyük/küçük harf farklılıklarından kaçınmak için LIKE operatörü kullan.
+        2. Cevap olarak ASLA markdown sembolleri (```sql veya ```) kullanma! Yalnızca saf SQL metnini gönder.
+        3. ASLA açıklama yazma. Sadece çalışan bir SQL kodu ver.
 
-        if not user_input.strip():
-            continue
+        İşte Veritabanı Şeması:
+        {db_schema}
+        """
 
-        print("Cevap düşünülüyor (Gemini API)...")
-        # 1. SQL Sorgusunu Üret
-        sql_query = ask_llm_for_sql(chat_session, user_input)
+        chat_session = client.chats.create(
+            model='gemini-2.5-flash',
+            config=genai.types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.0
+            )
+        )
+        
+        # Get response
+        response = chat_session.send_message(question)
+        sql_query = response.text.strip()
+        
+        # Clean markdown
+        if sql_query.startswith("```sql"):
+            sql_query = sql_query[6:]
+        if sql_query.startswith("```"):
+            sql_query = sql_query[3:]
+        if sql_query.endswith("```"):
+            sql_query = sql_query[:-3]
+        sql_query = sql_query.strip()
         
         if not sql_query:
-            continue
-            
-        print(f"\n[Generated SQL] >> {sql_query}\n")
-
-        # 2. Güvenlik Kontrolü (Sadece SELECT Komutları)
-        if any(keyword in sql_query.upper() for keyword in ['DROP', 'DELETE', 'UPDATE', 'INSERT']):
-            print("Uyarı: Uygulama güvenliği için sadece 'SELECT' (Okuma) sorgularına izin verilmektedir.")
-            continue
-
-        # 3. Üretilen SQL'i Veritabanında Çalıştır
-        columns, results = execute_sql(DB_FILE, sql_query)
-
-        if columns is None:
-            print("Hata: Sorgu çalıştırılamadı:")
-            print(results)
-            continue
+            return jsonify({'error': 'SQL üretilemedi.'}), 500
         
-        # 4. Sonucu Düzenli Bir Şekilde Ekrana Bas
-        if len(results) == 0:
-            print("Sonuç: Hiçbir veri bulunamadı.")
-        else:
-            print("--- Bulunan Sonuçlar ---")
-            print(" | ".join(columns))
-            print("-" * 50)
-            for row in results:
-                print(" | ".join(map(str, row)))
+        # Security check
+        if any(keyword in sql_query.upper() for keyword in ['DROP', 'DELETE', 'UPDATE', 'INSERT']):
+            return jsonify({'error': 'Güvenlik: Sadece SELECT sorgularına izin veriliyor.'}), 400
+        
+        # Execute SQL
+        columns, results = execute_sql(DB_FILE, sql_query)
+        
+        if columns is None:
+            return jsonify({'error': f'SQL hatası: {results}'}), 500
+        
+        return jsonify({
+            'sql': sql_query,
+            'columns': columns,
+            'results': results,
+            'row_count': len(results)
+        })
+        
+    except Exception as e:
+        print(f"Hata: {e}")
+        return jsonify({'error': f'SQL üretilemedi: {str(e)}'}), 500
+
+@app.route('/')
+def serve_html():
+    with open('text_to_sql.html', 'r', encoding='utf-8') as f:
+        return f.read()
+
+@app.route('/styles.css')
+def serve_css():
+    with open('styles.css', 'r', encoding='utf-8') as f:
+        return f.read(), 200, {'Content-Type': 'text/css'}
+
+@app.route('/script.js')
+def serve_js():
+    with open('script.js', 'r', encoding='utf-8') as f:
+        return f.read(), 200, {'Content-Type': 'application/javascript'}
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=False, port=5001)
